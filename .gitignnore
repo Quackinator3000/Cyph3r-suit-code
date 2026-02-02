@@ -1,0 +1,19 @@
+# Arduino build artifacts
+*.hex
+*.elf
+*.bin
+*.map
+
+# Arduino IDE junk
+*.tmp
+*.bak
+*.swp
+*.autosave
+*.~*
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Arduino CLI
+.build/
