@@ -66,7 +66,7 @@ const int RCLK_PIN = 14;
 
 // DIMENSIONS
 const int FACE_HEIGHT = 8;
-const int FACE_COUNT = 5; // the number of face arrays I have made.
+const int FACE_COUNT = 6; // the number of face arrays I have made.
 const int MOUTH_WIDTH  = 64; 
 const int EYE_WIDTH    = 16;  
 const int EYES_WIDTH   = EYE_WIDTH * 2;  
@@ -90,14 +90,14 @@ LedControl Lchain(LDIN_PIN, LCLK_PIN, LCS_PIN, LCHAIN_DEVS);
 // RIGHT: mouth+eye in series on the RIGHT mouth pins
 LedControl Rchain(RDIN_PIN, RCLK_PIN, RCS_PIN, RCHAIN_DEVS);
 
-// face[y][x] => y = 0..7, x = 0..95
-byte face[FACE_HEIGHT][FULL_WIDTH];
-
+// curface[y][x] => y = 0..7, x = 0..95
+byte curface[FACE_HEIGHT][FULL_WIDTH];
+byte* update[FACE_HEIGHT * FULL_WIDTH];
 /*
---------------------------------------------------------------------------------------------
+====================================================================================----
 ERROR FACE IF I DON'T PUT THIS HERE THEN THE COMPILER COMPLAINS ABOUT SCOPE OR SUM SHIZ
 (I KNOW WHY)
---------------------------------------------------------------------------------------------
+====================================================================================----
 */
 static const char* ER_MOUTH[FACE_HEIGHT] = {
   "###############.#######..######.",
@@ -186,9 +186,9 @@ public:
 
 
 /*
----------------------------------------------------------------------
+============================================================================================================================================================================================================================================================
 BUFFER LOADER CODE (WTF GPT)
----------------------------------------------------------------------
+============================================================================================================================================================================================================================================================
 */
 
 // leftHalfMouth is 32 chars wide. We mirror it into the 64-wide mouth region.
@@ -198,8 +198,8 @@ void loadMirroredMouthFromLeft32(const char* const* leftHalfMouth) {
       if (leftHalfMouth[y][x] == '#') {
         int leftX  = x;       // 0..31
         int rightX = 63 - x;  // 63..32
-        face[y][leftX]  = 1;
-        face[y][rightX] = 1;
+        curface[y][leftX]  = 1;
+        curface[y][rightX] = 1;
       }
     }
   }
@@ -212,22 +212,22 @@ void loadMirroredEyesFromLeft16(const char* const* leftEye) {
       if (leftEye[y][x] == '#') {
         int leftGlobal  = MOUTH_WIDTH + x;                      // 64..79
         int rightGlobal = (MOUTH_WIDTH + EYES_WIDTH - 1) - x;   // 95..80
-        face[y][leftGlobal]  = 1;
-        face[y][rightGlobal] = 1;
+        curface[y][leftGlobal]  = 1;
+        curface[y][rightGlobal] = 1;
       }
     }
   }
 }
 
 
-//  -----------------------------------------------------------------
+//  ==================================================================================================================================================================================================================-
 // Buffer helpers (STARTED AI BUT DID A REWRITE OR 2 SO YEAH)
-//  -----------------------------------------------------------------
+//  ==================================================================================================================================================================================================================-
 
 void clearMouth() {
   for (int y = 0; y < FACE_HEIGHT; y++) {
     for (int x = 0; x < MOUTH_WIDTH; x++) {
-      face[y][x] = 0;
+      curface[y][x] = 0;
     }
   }
 }
@@ -235,7 +235,7 @@ void clearMouth() {
 void clearEyes() {
   for (int y = 0; y < FACE_HEIGHT; y++) {
     for (int x = MOUTH_WIDTH; x < FULL_WIDTH; x++) {
-      face[y][x] = 0;
+      curface[y][x] = 0;
     }
   }
 }
@@ -257,8 +257,8 @@ void fillFace() {
       for (int y = 0; y < FACE_HEIGHT; y += fillin) { // top / bottom
         for (int xx = y; xx < (y + fillin); xx++) { // fill in y 1-8 all at once.
           if (x < MOUTH_WIDTH) {
-            face[xx][63 - x] = 1;
-            face[xx][x] = 1;
+            curface[xx][63 - x] = 1;
+            curface[xx][x] = 1;
           }
           else if ((x + 16) > FULL_WIDTH) {
             return;
@@ -266,8 +266,8 @@ void fillFace() {
           else {
             int i = 192; // double the total length to do integer bs and make the eyes mirror properly
             int n = x + 32; // offset to mirror the eyes
-            face[xx][x] = 1;
-            face[xx][i - n] = 1;
+            curface[xx][x] = 1;
+            curface[xx][i - n] = 1;
           }
         }
         renderFaceSeries();
@@ -278,18 +278,17 @@ void fillFace() {
 
 
 
-
-//  -----------------------------------------------------------------
+//  ==================================================================================================================================================================================================================-
 // Rendering (MOSTLY AI. EVERY OTHER PANEL WAS MIRRORED SO HELL NO!)
-//  -----------------------------------------------------------------
+//  ==================================================================================================================================================================================================================-
 
-// ---------- render functions ----------
+// ==================================================================================== render functions ====================================================================================
 
 void renderLeftMouthSeries() {
   // mouth left = x 0..31 => Lchain dev 0..3
   for (int y = 0; y < FACE_HEIGHT; y++) {
     for (int x = 0; x < 32; x++) {
-      bool on = (face[y][x] == 1);
+      bool on = (curface[y][x] == 1);
       setLedLeft(/*devBase=*/0, /*xWithinGroup=*/x, y, on);
     }
   }
@@ -301,7 +300,7 @@ void renderLeftEyeSeries() {
   for (int y = 0; y < FACE_HEIGHT; y++) {
     for (int x = 0; x < 16; x++) {
       int gx = MOUTH_WIDTH + x;          // 64..79
-      bool on = (face[y][gx] == 1);
+      bool on = (curface[y][gx] == 1);
 
       int outX = 15 - x;
       int outY = 7 - y;
@@ -316,7 +315,7 @@ void renderRightMouthSeries() {
   for (int y = 0; y < FACE_HEIGHT; y++) {
     for (int x = 32; x < 64; x++) {
       int localX = x - 32;                 // 0..31
-      bool on = (face[y][x] == 1);
+      bool on = (curface[y][x] == 1);
       setLedRight(/*devBase=*/0, /*groupDevs=*/RMOUTH_DEVS, /*xWithinGroup=*/localX, y, on);
     }
   }
@@ -328,7 +327,7 @@ void renderRightEyeSeries() {
   for (int y = 0; y < FACE_HEIGHT; y++) {
     for (int x = 0; x < 16; x++) {
       int gx = MOUTH_WIDTH + 16 + x;    // 80..95
-      bool on = (face[y][gx] == 1);
+      bool on = (curface[y][gx] == 1);
 
       int outX = 15 - x;
       int outY = 7 - y;
@@ -356,12 +355,12 @@ void renderMouth() {
   renderLeftMouthSeries();
 }
 
-//  -----------------------------------------------------------------------
+//  ============================================================================================================================================================================================================================================================--
 // Pattern loaders (THIS SECTION WAS AI GENERATED CAUSE F*CK INTEGER ARITH-
 // Segmentation fault, core dumped.
-//  -----------------------------------------------------------------------
+//  ============================================================================================================================================================================================================================================================--
 
-// ---------- low-level helpers ----------
+// ==================================================================================== low-level helpers ====================================================================================
 
 // Left-side mapping: straightforward (matches your old Lmouthlc + eyelc)
 static inline void setLedLeft(int devBase, int xWithinGroup, int y, bool on) {
@@ -383,9 +382,9 @@ static inline void setLedRight(int devBase, int groupDevs, int xWithinGroup, int
 }
 
 /*
--------------------------------------------------------------------------------------------------
+==============================================================================================================================----
 SPECIAL MOUTH ONLY ARRAYS (DEPRICATED!!!!)
--------------------------------------------------------------------------------------------------
+==============================================================================================================================----
 */
 
 void sadMouth() {
@@ -422,10 +421,10 @@ void angryMouth() {
 }
 
 /*
----------------------------------------------------------------------------------------------
+==============================================================================================================================
 NEUTRAL FACE (DEFAULT) (LEGACY) (ORIGINAL) (GO-TO) (CLASSIC) (MORE BS PADDING TO FILL THIS O-
 ^ Segmentation fault, core dumped :3
----------------------------------------------------------------------------------------------
+==============================================================================================================================
 */
 static const char* const N_MOUTH[FACE_HEIGHT] = {
   "##..............................",
@@ -471,11 +470,11 @@ static const char* const N_BB[FACE_HEIGHT] = {
   "##.............#"
 };
 /*
----------------------------------------------------------------------------------------------
+==============================================================================================================================
 FISH EYES (LMAOOOOO)
 If we never really fix the memory leaks then they will keep needing us to "fix" the code.
 #JobSecurty #HustleMindset
----------------------------------------------------------------------------------------------
+==============================================================================================================================
 */
 
 static const char* const FE_MOUTH[FACE_HEIGHT] = { // FE = Fish Eyes
@@ -522,11 +521,11 @@ static const char* const FE_BB[FACE_HEIGHT] = {
   "................"
 };
 /*
-------------------------------------------------------------------------------------
+====================================================================================
 OWO FACE (JUST FE_EYES + SPECIAL W MOUTH) 
-------------------------------------------------------------------------------------
+====================================================================================
 */
-static const char* const OWO_MOUTH[FACE_HEIGHT] = {
+static const char* const PIN_MOUTH[FACE_HEIGHT] = {
   "..........######.............###",
   "..........##..###..........####.",
   "...............###........###...",
@@ -537,42 +536,21 @@ static const char* const OWO_MOUTH[FACE_HEIGHT] = {
   "....................####........"
 };
 
-static const char* const OWO_EYES[FACE_HEIGHT] = {
-  "....########....",
-  "..##........##..",
-  ".#............#.",
-  "#..............#",
-  "#..............#",
-  ".#............#.",
-  "..##........##..",
-  "....########...."
+static const char* const PIN_EYES[FACE_HEIGHT] = {
+  "................",
+  "................",
+  "................",
+  "................",
+  "..........##....",
+  "..........##....",
+  "................",
+  "................",
 };
 
-static const char* const OWO_BA[FACE_HEIGHT] = {
-  "................",
-  "................",
-  "...##########...",
-  "###..........###",
-  "###..........###",
-  "...##########...",
-  "................",
-  "................."
-};
-
-static const char* const OWO_BB[FACE_HEIGHT] = {
-  "................",
-  "................",
-  "................",
-  "................",
-  "###..........###",
-  "...##########...",
-  "................",
-  "................",
-};
 /*
------------------------------------------------------------------------------------------
+====================================================================================-
 BLUSH FACE (AWWW, HE'S IN LUUUUVVVV)
------------------------------------------------------------------------------------------
+====================================================================================-
 */
 static const char* const BL_MOUTH[FACE_HEIGHT] = {
   "#.#.#.#.#.......####............",
@@ -585,7 +563,7 @@ static const char* const BL_MOUTH[FACE_HEIGHT] = {
   "...#.#.#.#.#...................."
 };
 
-  static const char* const BL_EYES[FACE_HEIGHT] = {
+static const char* const BL_EYES[FACE_HEIGHT] = {
   "..............##",
   ".............###",
   "..........######",
@@ -595,8 +573,8 @@ static const char* const BL_MOUTH[FACE_HEIGHT] = {
   "...##########...",
   "....#######....."
 };
- 
-  static const char* const BL_BA[FACE_HEIGHT] = {
+
+static const char* const BL_BA[FACE_HEIGHT] = {
   "................",
   "................",
   "..............##",
@@ -606,8 +584,8 @@ static const char* const BL_MOUTH[FACE_HEIGHT] = {
   "...#######......",
   "....####........"
 };
-  
-  static const char* const BL_BB[FACE_HEIGHT] = {
+
+static const char* const BL_BB[FACE_HEIGHT] = {
   "................",
   "................",
   "................",
@@ -618,7 +596,32 @@ static const char* const BL_MOUTH[FACE_HEIGHT] = {
   "................."
 };
  
+/*
+=============================================================================
+EEPY FACE (helmet off??)
+=============================================================================
+*/
+static const char* const SL_MOUTH[FACE_HEIGHT] = {
+  "................................",
+  "................................",
+  "................................",
+  "................###.............",
+  "....###.......#######.......####",
+  ".....####...####...#####..######",
+  ".......#######........#######...",
+  ".........###............###....."
+};
 
+static const char* const SL_EYES[FACE_HEIGHT] = {
+  "................",
+  "................",
+  "................",
+  "................",
+  "####............",
+  ".#####......####",
+  "...############.",
+  ".....#######...."
+};
 
 void angryEyes() {
   clearEyes();
@@ -639,9 +642,9 @@ void angryEyes() {
 
 
 /*
-----------------------------------------------------------------------
+=================================================================================
 DECLARATIONS FOR FACE ARRAYS AS CLASSES!!!! (SCALABLE)
-----------------------------------------------------------------------
+=================================================================================
 */
 
 Face neutralFace(
@@ -680,13 +683,13 @@ Face blushFace( // Repurposes the original sad eyes and the original OWO mouth.
   nullptr
 );
 
-Face owoFace(
-  true,
+Face pinFace(
   false,
-  OWO_MOUTH,
-  OWO_EYES,
-  OWO_BA,
-  OWO_BB,
+  false,
+  PIN_MOUTH,
+  PIN_EYES,
+  nullptr,
+  nullptr,
   nullptr,
   nullptr,
   nullptr
@@ -703,13 +706,26 @@ Face ERROR(
   nullptr,
   nullptr
 );
+
+Face sleepFace(
+  false,
+  false,
+  SL_MOUTH,
+  SL_EYES,
+  nullptr,
+  nullptr,
+  nullptr,
+  nullptr,
+  nullptr
+);
+
 /*-
- --------------------------------------------
+ ==========================================
 CODE FOR BUTTON CONTROLS!
- --------------------------------------------
+ ==========================================
 */
 Face* classes[] = {
-  &ERROR, &neutralFace, &fishEyes, &blushFace, &owoFace
+  &ERROR, &neutralFace, &fishEyes, &blushFace, &pinFace, &sleepFace
 };
 // thinking out loud memo, seeing as I already have the 2 different inputs on their own UART lines, I can just send the same 0-3 and DIRRETLY 
 // index the array. Total hack, but better to just get this concept up and running asap than spend TOO much time optimizing a MVP.
@@ -762,14 +778,33 @@ bool checkTrue(int i) {
 
 /*
 /////////////////////////////////////////////////////////////////////
-AUTOMATIC BRIGHTNESS CONTROLLER
+DIFF RENDER LETS GOOOO
 /////////////////////////////////////////////////////////////////////
 */
+/* 
 
-int setBrightness(int b);
+THERE IS ONE LITTLE PROBLEM WITH THIS!!!!
+this sisn't good for the main face displayes seeing as it updates on an XOR style.
+this could work for different functions later on I.E. rave mode, but not for faces
 
 
-
+void diffBufferMouth() {
+  
+  byte candarray[FACE_HEIGHT][MOUTH_WIDTH];           // copy the candidate face into the buffer
+  int i = 0;
+  for (int x = 0; x < MOUTH_WIDTH; x++) {    // check if pixels are different, save the face.
+    for (int y = 0; y  < FACE_HEIGHT; y++) {
+      if candarray[y][x] != curface[y][x] {
+        update[i] = curface[y][x];
+        i += 1;
+      }
+      else {
+        update[i] = candarray[y][x];
+      }
+    }
+  }
+}
+*/
 
 /*
 void startAnimation() {
@@ -777,7 +812,7 @@ void startAnimation() {
   renderFace();
   for (int y = 0; y < FACE_HEIGHT; y++){
     for (int x = 0; x < FULL_WIDTH; x++) {
-      face[y][x] = 0;
+      curface[y][x] = 0;
       if (x < MOUTH_WIDTH) {
         renderMouth();
       }
@@ -789,27 +824,34 @@ void startAnimation() {
 }
 */
 
+void sendMouthCount(uint8_t hex) {
+  if (hex == 0xF1) {
+    Serial1.write(FACE_COUNT);
+  }
+}
 
-
+void sendEyeCount(uint8_t hex) {
+  if (hex == 0xF1) {
+    Serial2.write(FACE_COUNT);
+  }
+}
 
 // important variables I need gloablly cause I suck at this
 static int selected_eyes = 5;
 static int selected_mouth = 5;
 
-
-
 bool isliveA = false;
 bool isliveB = false;
 int lvl = 15;
 const int BRIGHTNESS = 26;
-//----------------------------SETUP LOOP\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\///
+//================================---SETUP LOOP\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\///
 void setup() {
   Wire.setSDA(16);
   Wire.setSCL(17);
   Wire.begin();
   Wire.setClock(400000); //400khz clock
 
-  delay(1000);
+  delay(200);
   Serial.begin(115200); //USB interface!
   pinMode(LED_BUILTIN, OUTPUT);
   for (int i = 0; i < 5; i++) {
@@ -818,8 +860,8 @@ void setup() {
   }
 
   // start mouth UART
-  Serial1.setTX(12);
-  Serial1.setRX(13);
+  Serial1.setTX(16);
+  Serial1.setRX(17);
   Serial1.begin(115200); 
   delay(50);
  
@@ -855,12 +897,11 @@ void setup() {
 */
   pinMode(BRIGHTNESS, INPUT_PULLUP);
   pinMode(LED_BUILTIN, OUTPUT);
-  fillFace();
+  //fillFace();
   clearFace();
   
-
-  mouthToBuffer(1); // 0 ATM is the error fallback (Just in case I need it)
-  eyeToBuffer(1);
+  mouthToBuffer(5); // 0 ATM is the error fallback (Just in case I need it)
+  eyeToBuffer(5);
   renderFaceSeries();
   uint8_t b = 0xff;
   Serial1.write(b);
@@ -881,7 +922,7 @@ void setup() {
 void setBrightness(int b, int old_b) {
   const int BAC = 90; // brightness actual constant
   const float BR = 5.4; // brightness ratio (divide by this)
-  // /////////// ----  LOGIC STARTS ------------////////////////
+  // /////////// ----  LOGIC STARTS ====================================================================================--////////////////
   if (b > 80) {b = 80;}
   else if (b < 10) {b = 10;}
   float v = ((BAC - b) / BR);
@@ -904,7 +945,7 @@ void setBrightness(int b, int old_b) {
 
 
 //////////////////////////////////
-//-------TIMING & CLOCKING------// -- Variables for coordinating when functions activate. saves CPU cycles!
+//==========================================--TIMING & CLOCKING==========================================-// -- Variables for coordinating when functions activate. saves CPU cycles!
 //////////////////////////////////
 long int lastgyro = 0;
 long int lastbrightness = 0;
@@ -926,7 +967,7 @@ think it's a good practice... when a new face is requested, DO IT NOW!!!!
 */
 
 ///////////////////////////////////////////
-//-------Global values worth saving------// -- Variables that I need to persist between loops!
+//==========================================--Global values worth saving==========================================-// -- Variables that I need to persist between loops!
 ///////////////////////////////////////////
 
 int old_raw = 0;
@@ -937,15 +978,17 @@ int old_raw = 0;
 
 
 
-//-----------------------MAIN LOOP-----------------------
+//========================================================================================================================================================================---MAIN LOOP========================================================================================================================================================================---
 void loop() {
   now = millis();
+
   if(now - lastbrightness > 2){
     int b = analogRead(BRIGHTNESS);
     buffer[BRcount] = b;
     BRcount += 1;
     if (BRcount == BUF - 1) {BRcount = 0;}
   }
+  
   if (now - lastbrightness > 100) {
     //Serial.print("updating brightness...");
     lastbrightness = now;
@@ -1003,10 +1046,11 @@ start by checking if this byte is 0xff.
 if not then we can continue to read the byte
 if the byte doesn't match the data, throw it our.
 */
-//--------------------------------------------mouth logic---------------------------------
+//==========================================mouth logic============================================================================================================================================================================================================================================================---
   if (isliveA == true) {  // if we know we are live, then just read it.
     if (Serial1.available()) { 
       uint8_t b = Serial1.read();
+      sendMouthCount(b);
       if (b == 0xFE) { // if it's a heartbeat, record new ping
         lastpingA = now;
       }
@@ -1037,10 +1081,14 @@ if the byte doesn't match the data, throw it our.
       isliveA = true;
     }
   }
-//-------------------------------------------------eye logic--------------------------
+
+
+
+//====================================================================================eye logic==================================================================================================================================================================================================================-
   if (isliveB == true) {  // if we know we are live, then just read it.
     if (Serial2.available()) { 
       uint8_t b = Serial2.read();
+      sendEyeCount(b);
       if (b == 0xFE) { // if it's a heartbeat, record new ping
         lastpingB = now;
       }
@@ -1070,7 +1118,7 @@ if the byte doesn't match the data, throw it our.
       isliveB = true;
     }
   }
-//----------------------------------------------BLINKING--------------------------------
+//==========================================--BLINKING============================================================================================================================================================================================================================================================--
   if ((now - lastblink) >= BLINK && checkTrue(selected_eyes) == true) {
     digitalWrite(LED_BUILTIN, HIGH);
     blinkToBuffer(selected_eyes);    

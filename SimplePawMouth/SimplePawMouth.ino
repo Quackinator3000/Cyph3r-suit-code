@@ -1,62 +1,77 @@
-/*
- LEFT PAW / EYES!!!!!!
+#include <Arduino.h>
 
-------------------------------------------------------
-PINOUTS AND CONSTANTS
-------------------------------------------------------
-*/
+// PINOUTS  ============================================================
 
-const uint8_t M_NORM  = 0x01;  //           00000001
-const uint8_t M_SAD  =  0x02; //            00000010
-const uint8_t M_MAD = 0x03;   //            00000011
-const uint8_t M_BLUSH  = 0x04; //           00000100
+static int RX = 17;
+static int TX = 16;
 
-bool IL = 0xff;
+static int BTN_1 = 18;
+static int BTN_2 = 19;
+static int BTN_3 = 20;
+static int BTN_4 = 21;
 
-const uint8_t BTN_4 = 5;
-const uint8_t BTN_3 = 4;
-const uint8_t BTN_2 = 0;
-const uint8_t BTN_1 = 2;
+// TIMING AND DELAYS  ==========================================================
 
-const int DEBOUNCE = 180;
+static int DEBO = 175;                    // debounce
+static int DPDELAY = 333;                 // Double press delay
+long int now = 0;                         // what time is it?
 
-const bool IDLE = HIGH;
+// USEFULL CONSTANTS AND VARIABLES  ============================================
+uint ON = LOW;
+int lastbutton = 0;
+const int MAXFACES = 12;
+// BUTTON OBJ  =================================================================
 
-void printFlags(uint8_t flags);
-// ---------------------------------------------------SETUP LOOP--------------------------------------------------
-void setup() {  
-  delay(1000);
-  Serial1.begin(38400);
+
+
+int options[4] = {BTN_1, BTN_2, BTN_3, BTN_4};
+
+void setup() {
+  delay(275);
+  Serial.begin(115200);
+  Serial1.setTX(TX);
+  Serial1.setRX(RX);
+  Serial1.begin(115200); // comms with main board 
 
   pinMode(BTN_1, INPUT_PULLUP);
   pinMode(BTN_2, INPUT_PULLUP);
   pinMode(BTN_3, INPUT_PULLUP);
   pinMode(BTN_4, INPUT_PULLUP);
+  // buttons ready and UART started
 
-  pinMode(LED_BUILTIN, OUTPUT);
-}
-long int lastsend = 0;
-int sel = 0;
-uint8_t flags = 0x00; 
-//----------------------------------------------------MAIN LOOP----------------------------------------------------
-void loop() {
-  sel = 0;
-  long int now = millis();
-  uint8_t flagvalues[4] = {M_NORM, M_SAD, M_MAD, M_BLUSH};
-  int button[4] = {BTN_1, BTN_2, BTN_3, BTN_4};
-  bool ON = LOW;
-
-  for (int i = 0; i < 4; i++) {
-    if (digitalRead(button[i]) == ON && (now - lastsend) > DEBOUNCE){
-      digitalWrite(LED_BUILTIN, HIGH);
-      lastsend = now;
-
-      sel = flagvalues[i];
-      Serial1.write(sel);
-      delay(50);
-      digitalWrite(LED_BUILTIN, LOW);
-
+  Serial1.write(0xF1);
+  Serial.println("trying check.");
+  delay(100);
+  if (Serial1.available()) { // get number of valid faces from head WIP
+    static const int num_faces = Serial1.read();
+    int FACES[MAXFACES];
+    for (int i = 0; i < num_faces; i++) {
+      FACES[i] = i + 1; // +1 so I can send that to the head
     }
   }
+  Serial.println("setup over");
 }
 
+ 
+int lastbtn = 1;
+long int lastpress = 0;
+
+void loop() {
+  long int now = millis();
+  // cehck for which button pressed, save it as lastbtn and time as lasttime
+  
+  for (int i = 0; i < 4; i++) {
+    if (digitalRead(options[i]) == ON && now - lastpress > DEBO) {            // if pressed & valid (not blocked by DEBO)
+      if (lastbtn == i && now - lastpress < DPDELAY ) {                        // if DP time still alive, then DB
+        Serial1.write(i + 4);                                                  // i + 4 to access past the first 4 values
+      }
+      else if (digitalRead(options[i]) == ON) {
+        Serial1.write(i);
+      }
+      lastbtn = i;
+      lastpress = now;
+    }
+  }
+
+
+}
