@@ -1,24 +1,25 @@
 #include <Arduino.h>
-
+//#include <arduinoFFT.h>
 // PINOUTS  ============================================================
 
-static int RX = 17;
-static int TX = 16;
+static int RX = 1;
+static int TX = 0;
 
-static int BTN_1 = 18;
-static int BTN_2 = 19;
-static int BTN_3 = 20;
-static int BTN_4 = 21;
+static int BTN_1 = 2;
+static int BTN_2 = 3;
+static int BTN_3 = 4;
+static int BTN_4 = 5;
 
 // TIMING AND DELAYS  ==========================================================
 
 static int DEBO = 175;                    // debounce
-static int DPDELAY = 333;                 // Double press delay
-long int now = 0;                         // what time is it?
+static int DPDELAY = 500;              // Double press delay
+static int HOLD = 1000;                    // Hold for rave mode
+// "now" declared in main
 
 // USEFULL CONSTANTS AND VARIABLES  ============================================
 uint ON = LOW;
-int lastbutton = 0;
+uint OFF = HIGH;
 const int MAXFACES = 12;
 // BUTTON OBJ  =================================================================
 
@@ -53,25 +54,38 @@ void setup() {
 }
 
  
-int lastbtn = 1;
-long int lastpress = 0;
+int lastbtn = 0;
+long int lastpress = 0; // misnomer, treat as last NEW button press
+long int holdtime = 0;
 
 void loop() {
-  long int now = millis();
-  // cehck for which button pressed, save it as lastbtn and time as lasttime
-  
+  long int now = millis();                     // check for which button pressed, save it as lastbtn and time as lasttime
   for (int i = 0; i < 4; i++) {
-    if (digitalRead(options[i]) == ON && now - lastpress > DEBO) {            // if pressed & valid (not blocked by DEBO)
-      if (lastbtn == i && now - lastpress < DPDELAY ) {                        // if DP time still alive, then DB
-        Serial1.write(i + 4);                                                  // i + 4 to access past the first 4 values
+    int b = digitalRead(options[i]);
+    if (b == ON) {
+      if (i != lastbtn) {
+        if (now - lastpress > DEBO && now - lastpress < DPDELAY) {               // DOUBLE PRESS??
+          Serial1.write(i + 4);
+          lastbtn = i;
+          while (digitalRead(options[i]) == ON) {
+            delay(10);
+          }
+        }
+        else {
+          Serial1.write(i);
+          lastbtn = i;                                       
+        }
+        lastpress = now;
       }
-      else if (digitalRead(options[i]) == ON) {
-        Serial1.write(i);
+      else {
+        holdtime = now - lastpress;
       }
-      lastbtn = i;
-      lastpress = now;
-    }
+      if (holdtime >= HOLD){
+        Serial1.write(0xFA);
+        while (digitalRead(options[i]) == ON) {
+          delay(10);
+        }
+      }
+    }    
   }
-
-
 }

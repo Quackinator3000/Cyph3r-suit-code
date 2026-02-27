@@ -1,8 +1,7 @@
 #include <Arduino.h>
 #include <LedControl.h>
-#include "FastIMU.h"
 #include <Wire.h>
-
+#include <arduinoFFT.h>
 /*
 void blankFaceTemplate() {
   static const char* leftMouth[FACE_HEIGHT] = {
@@ -52,7 +51,8 @@ renderRightEyeSeries();(leftEye);
 
 
 
-// Some hex codes for controlling the face.
+// MICROPHONE
+const int MIC = 27;
 
 // MOUTH LEFT PINOUT
 const int LDIN_PIN = 2;  
@@ -66,7 +66,7 @@ const int RCLK_PIN = 14;
 
 // DIMENSIONS
 const int FACE_HEIGHT = 8;
-const int FACE_COUNT = 6; // the number of face arrays I have made.
+const int FACE_COUNT = 7; // the number of face arrays I have made.
 const int MOUTH_WIDTH  = 64; 
 const int EYE_WIDTH    = 16;  
 const int EYES_WIDTH   = EYE_WIDTH * 2;  
@@ -83,7 +83,7 @@ const int RCHAIN_DEVS = RMOUTH_DEVS + REYE_DEVS; // 6
 // Here is where I put constants for the animations and UART comms as I need them.
 const long int BLINK = 5000;
 const int DC = 250;
-
+const int REF = 10000;
 // LEFT: mouth+eye in series on the LEFT mouth pins
 LedControl Lchain(LDIN_PIN, LCLK_PIN, LCS_PIN, LCHAIN_DEVS);
 
@@ -92,7 +92,7 @@ LedControl Rchain(RDIN_PIN, RCLK_PIN, RCS_PIN, RCHAIN_DEVS);
 
 // curface[y][x] => y = 0..7, x = 0..95
 byte curface[FACE_HEIGHT][FULL_WIDTH];
-byte* update[FACE_HEIGHT * FULL_WIDTH];
+byte update[FACE_HEIGHT * FULL_WIDTH];
 /*
 ====================================================================================----
 ERROR FACE IF I DON'T PUT THIS HERE THEN THE COMPILER COMPLAINS ABOUT SCOPE OR SUM SHIZ
@@ -192,7 +192,7 @@ BUFFER LOADER CODE (WTF GPT)
 */
 
 // leftHalfMouth is 32 chars wide. We mirror it into the 64-wide mouth region.
-void loadMirroredMouthFromLeft32(const char* const* leftHalfMouth) {
+void loadMouth(const char* const* leftHalfMouth) {
   for (int y = 0; y < FACE_HEIGHT; y++) {
     for (int x = 0; x < 32; x++) {
       if (leftHalfMouth[y][x] == '#') {
@@ -206,7 +206,7 @@ void loadMirroredMouthFromLeft32(const char* const* leftHalfMouth) {
 }
 
 // leftEye is 16 chars wide. We place it in x=64..79 and mirror into x=80..95.
-void loadMirroredEyesFromLeft16(const char* const* leftEye) {
+void loadEyes(const char* const* leftEye) {
   for (int y = 0; y < FACE_HEIGHT; y++) {
     for (int x = 0; x < EYE_WIDTH; x++) { // 0..15
       if (leftEye[y][x] == '#') {
@@ -270,7 +270,7 @@ void fillFace() {
             curface[xx][i - n] = 1;
           }
         }
-        renderFaceSeries();
+        renderFace();
       }
     }
   }
@@ -339,7 +339,7 @@ void renderRightEyeSeries() {
   }
 }
 
-void renderFaceSeries() {
+void renderFace() {
   renderLeftMouthSeries();
   renderLeftEyeSeries();
   renderRightMouthSeries();
@@ -382,26 +382,20 @@ static inline void setLedRight(int devBase, int groupDevs, int xWithinGroup, int
 }
 
 /*
+======================================================================================================================
+AUDIO PROCESSING FUNCTIONS (Fast-Fourier Transform)
+======================================================================================================================
+*/
+
+// TODO
+
+/*
 ==============================================================================================================================----
 SPECIAL MOUTH ONLY ARRAYS (DEPRICATED!!!!)
 ==============================================================================================================================----
 */
 
-void sadMouth() {
-  clearMouth();
-    static const char* leftMouth[FACE_HEIGHT] = {
-    "..............########......####",
-    "............############..#####.",
-    "...........####.....##########..",
-    "..........###.........######....",
-    ".........###....................",
-    "........###.....................",
-    "........##......................",
-    "........##......................"
-  };
-  renderLeftMouthSeries();
-  renderRightMouthSeries();(leftMouth);
-}
+
 
 
 void angryMouth() {
@@ -622,22 +616,56 @@ static const char* const SL_EYES[FACE_HEIGHT] = {
   "...############.",
   ".....#######...."
 };
+/*
+=============================================================================
+ANGY FACE
+=============================================================================
+*/
 
-void angryEyes() {
-  clearEyes();
-  static const char* leftEye[FACE_HEIGHT] = {
-    "##..............",
-    "####............",
-    "#######.........",
-    "..########......",
-    "....########....",
-    "......########..",
-    "........########",
-    "..........######"
-  };
-  renderLeftEyeSeries();
-  renderRightEyeSeries();
-}
+static const char* AG_MOUTH[FACE_HEIGHT] = {
+  "..............########......####",
+  "............############..#####.",
+  "...........####.....##########..",
+  "..........###.........######....",
+  ".........###....................",
+  "........###.....................",
+  "........##......................",
+  "........##......................"
+};
+
+static const char* AG_EYES[FACE_HEIGHT] = {
+  "##..............",
+  "####............",
+  "#######.........",
+  "..########......",
+  "....########....",
+  "......########..",
+  "........########",
+  "..........######"
+};
+
+static const char* AG_BA[FACE_HEIGHT] = {
+  "................",
+  "................",
+  "................",
+  "................",
+  "############....",
+  "..############..",
+  ".....#########..",
+  "................"
+};
+
+static const char* AG_BB[FACE_HEIGHT] = {
+  "................",
+  "................",
+  "................",
+  "................",
+  ".#####..........",
+  "################",
+  "........#######.",
+  "................"
+};
+
 
 
 
@@ -719,14 +747,28 @@ Face sleepFace(
   nullptr
 );
 
+Face angryFace(
+  true,
+  false,
+  AG_MOUTH,
+  AG_EYES,
+  AG_BA,
+  AG_BB,
+  nullptr,
+  nullptr,
+  nullptr
+);
+
+Face* classes[] = {
+  &ERROR, &neutralFace, &fishEyes, &blushFace, &pinFace, &sleepFace, &angryFace
+};
+
 /*-
  ==========================================
 CODE FOR BUTTON CONTROLS!
  ==========================================
 */
-Face* classes[] = {
-  &ERROR, &neutralFace, &fishEyes, &blushFace, &pinFace, &sleepFace
-};
+
 // thinking out loud memo, seeing as I already have the 2 different inputs on their own UART lines, I can just send the same 0-3 and DIRRETLY 
 // index the array. Total hack, but better to just get this concept up and running asap than spend TOO much time optimizing a MVP.
 
@@ -735,38 +777,40 @@ Face* selectFace(int i) {
   else if (i < 0) {i = 0;}
   return classes[i];
 }
+
 void mouthToBuffer(int i) {
   Face* f = selectFace(i);
   clearMouth();
-  loadMirroredMouthFromLeft32(f->mouth);
+  loadMouth(f->mouth);
 }
 
 void eyeToBuffer(int i) {
   Face* f = selectFace(i);
   clearEyes();
-  loadMirroredEyesFromLeft16(f->eye);
+  loadEyes(f->eye);
 }
 
 void faceToBuffer(int i) {
   Face* f = selectFace(i);
   clearFace();
-  loadMirroredMouthFromLeft32(f->mouth);
-  loadMirroredEyesFromLeft16(f->eye);
+  loadMouth(f->mouth);
+  loadEyes(f->eye);
 }
+
 void blinkToBuffer(int i) {
   Face* f = selectFace(i);
   clearEyes();  
-  loadMirroredEyesFromLeft16(f->blinkA);
+  loadEyes(f->blinkA);
   renderLeftEyeSeries();
   renderRightEyeSeries();
   renderEyes();
   clearEyes();
-  loadMirroredEyesFromLeft16(f->blinkB); 
+  loadEyes(f->blinkB); 
   renderLeftEyeSeries();
   renderRightEyeSeries();
   renderEyes();
   clearEyes();
-  loadMirroredEyesFromLeft16(f->blinkA);
+  loadEyes(f->blinkA);
   renderLeftEyeSeries();
   renderRightEyeSeries();
   renderEyes(); 
@@ -776,53 +820,6 @@ bool checkTrue(int i) {
   return f->canBlink;
 }
 
-/*
-/////////////////////////////////////////////////////////////////////
-DIFF RENDER LETS GOOOO
-/////////////////////////////////////////////////////////////////////
-*/
-/* 
-
-THERE IS ONE LITTLE PROBLEM WITH THIS!!!!
-this sisn't good for the main face displayes seeing as it updates on an XOR style.
-this could work for different functions later on I.E. rave mode, but not for faces
-
-
-void diffBufferMouth() {
-  
-  byte candarray[FACE_HEIGHT][MOUTH_WIDTH];           // copy the candidate face into the buffer
-  int i = 0;
-  for (int x = 0; x < MOUTH_WIDTH; x++) {    // check if pixels are different, save the face.
-    for (int y = 0; y  < FACE_HEIGHT; y++) {
-      if candarray[y][x] != curface[y][x] {
-        update[i] = curface[y][x];
-        i += 1;
-      }
-      else {
-        update[i] = candarray[y][x];
-      }
-    }
-  }
-}
-*/
-
-/*
-void startAnimation() {
-  fillFace();
-  renderFace();
-  for (int y = 0; y < FACE_HEIGHT; y++){
-    for (int x = 0; x < FULL_WIDTH; x++) {
-      curface[y][x] = 0;
-      if (x < MOUTH_WIDTH) {
-        renderMouth();
-      }
-      else {
-        renderEyes();
-      }
-    }
-  }
-}
-*/
 
 void sendMouthCount(uint8_t hex) {
   if (hex == 0xF1) {
@@ -900,9 +897,9 @@ void setup() {
   //fillFace();
   clearFace();
   
-  mouthToBuffer(5); // 0 ATM is the error fallback (Just in case I need it)
-  eyeToBuffer(5);
-  renderFaceSeries();
+  mouthToBuffer(1); // 0 ATM is the error fallback (Just in case I need it)
+  eyeToBuffer(1);
+  renderFace();
   uint8_t b = 0xff;
   Serial1.write(b);
   long int lastblink = millis();
@@ -912,11 +909,16 @@ void setup() {
   analogReadResolution(12);   // should give 0..4095
   analogWriteResolution(12);  // optional, just keeps things consistent
 
-
+  for (int i = 0; i < LCHAIN_DEVS; i++) { // left and right have to be done seperatly because they get their data from different pins
+    Lchain.setIntensity(i, 15);
+  }
+  for (int i = 0; i < RCHAIN_DEVS; i++) {
+    Rchain.setIntensity(i, 15);
+  }
 
 }
 
-
+//void PrintVector(double *vData, uint16_t bufferSize, uint8_t scaleType);
 
 
 void setBrightness(int b, int old_b) {
@@ -967,21 +969,173 @@ think it's a good practice... when a new face is requested, DO IT NOW!!!!
 */
 
 ///////////////////////////////////////////
+//==========================================--Wave form function==========================================-// -- Function for wave form (thanks gpt)
+///////////////////////////////////////////
+
+// ================= FFT SPECTRUM (MOUTH) =================
+#include <arduinoFFT.h>
+
+// Tune these:
+static const uint16_t FFT_SAMPLES = 128;      // power of 2: 64 or 128 recommended
+static const double   FFT_FS      = 10000.0;   // sampling frequency (Hz)
+static const uint8_t  BANDS_HALF  = 32;       // 32 bands -> mirrored to 64 columns
+
+static double vReal[FFT_SAMPLES];
+static double vImag[FFT_SAMPLES];
+
+// arduinoFFT v2.x template style:
+ArduinoFFT<double> FFT(vReal, vImag, FFT_SAMPLES, FFT_FS);
+
+// Auto-gain (keeps bars from being tiny or pegged)
+static double fftGain = 5500.0;   // starting guess; will self-adjust
+static const double GAIN_ATTACK = 0.05;  // increase speed
+static const double GAIN_DECAY  = 0.05;  // decrease speed
+
+static uint8_t barHold[BANDS_HALF] = {0};
+static const uint16_t DECAY_MS = 1;   // try 20–35
+static uint32_t lastDecayMs = 0;
+
+static inline int clampi(int v, int lo, int hi) {
+  if (v < lo) return lo;
+  if (v > hi) return hi;
+  return v;
+}
+
+// Fast-ish timed sampling (no "scroll" — we sample into arrays first)
+void sampleMicFFT() {
+  const uint32_t periodUs = (uint32_t)(1000000.0 / FFT_FS);
+  uint32_t t = micros();
+
+  static double dc = 2048.0;
+
+  for (uint16_t i = 0; i < FFT_SAMPLES; i++) {
+    while ((uint32_t)(micros() - t) < periodUs) { /* wait */ }
+    t += periodUs;
+
+    int s = analogRead(MIC);
+    dc = (dc * 0.98) + (s * 0.02);
+
+    vReal[i] = (double)s - dc;
+    vImag[i] = 0.0;
+  }
+}
+
+void drawFFT() {
+  // 1) sample time-domain
+  sampleMicFFT();
+
+  // 2) FFT pipeline (NOTE: arduinoFFT uses capitalized method names)
+  FFT.windowing(FFT_WIN_TYP_HAMMING, FFT_FORWARD);
+  FFT.compute(FFT_FORWARD);
+  FFT.complexToMagnitude();
+
+  // 3) band setup
+  const uint16_t binStart = 2;
+  const uint16_t binEnd   = (FFT_SAMPLES / 2) - 1; // inclusive
+  const uint16_t usableBins = (binEnd >= binStart) ? (binEnd - binStart + 1) : 0;
+  const uint16_t binsPerBand = (usableBins / BANDS_HALF) > 0 ? (usableBins / BANDS_HALF) : 1;
+
+  clearMouth();
+
+  double framePeak = 1.0;
+
+  // 4) compute heights + attack (update barHold)
+  for (uint8_t band = 0; band < BANDS_HALF; band++) {
+    uint16_t b0 = binStart + (uint16_t)band * binsPerBand;
+    uint16_t b1 = b0 + binsPerBand;
+
+    if (b0 > binEnd) b0 = binEnd;
+    if (b1 > binEnd + 1) b1 = binEnd + 1;
+
+    double m = 0.0;
+    for (uint16_t b = b0; b < b1; b++) {
+      if (vReal[b] > m) m = vReal[b];
+    }
+
+    if (m > framePeak) framePeak = m;
+
+    int h = (int)round((m / fftGain) * 8.0);
+    h = clampi(h, 0, 8);
+
+    // Attack (instant rise)
+    if (h > barHold[band]) barHold[band] = h;
+  }
+
+  // 5) decay once per frame (NOT inside the band loop)
+  uint32_t nowMs = millis();
+  if (nowMs - lastDecayMs >= DECAY_MS) {
+    lastDecayMs = nowMs;
+    for (uint8_t i = 0; i < BANDS_HALF; i++) {
+      if (barHold[i] > 0) barHold[i]--;
+    }
+  }
+
+  // 6) draw bars using held values
+  for (uint8_t band = 0; band < BANDS_HALF; band++) {
+    uint8_t hh = barHold[band];
+
+    int xL = band;        // 0..31
+    int xR = 63 - band;   // 63..32
+
+    for (int y = 0; y < hh; y++) {
+      int yy = 7 - y;     // bottom-up
+      curface[yy][xL] = 1;
+      curface[yy][xR] = 1;
+    }
+  }
+
+  // 7) optional auto-gain (comment this whole block out if mic AGC fights it)
+ /* double target = framePeak * 1.2;
+  if (target < 50.0) target = 50.0;
+
+  if (target > fftGain) {
+    fftGain = (1.0 - GAIN_ATTACK) * fftGain + GAIN_ATTACK * target;
+  } else {
+    fftGain = (1.0 - GAIN_DECAY) * fftGain + GAIN_DECAY * target;
+  }
+*/
+  // 8) render once
+  renderMouth();
+}
+///////////////////////////////////////////
 //==========================================--Global values worth saving==========================================-// -- Variables that I need to persist between loops!
 ///////////////////////////////////////////
 
+
+
+
+
+
+
+
+
+
+
+static uint32_t lastFFTPrint = 0;
 int old_raw = 0;
 
-
-
-
-
-
-
+int WAVE = 33;
+int lastwave = 0;
+int mode = 0;
+long int lastrefm = 0;
+long int lastrefe = 0;
 //========================================================================================================================================================================---MAIN LOOP========================================================================================================================================================================---
 void loop() {
   now = millis();
 
+
+
+
+  if (now - lastwave > WAVE && mode == 1) {
+    lastwave = now; 
+    drawFFT();
+  }
+
+  
+
+
+
+/*
   if(now - lastbrightness > 2){
     int b = analogRead(BRIGHTNESS);
     buffer[BRcount] = b;
@@ -1005,10 +1159,10 @@ void loop() {
     Serial.print(raw);
     Serial.print(": old_raw= ");
     Serial.println(old_raw);
-    */
+    *
     old_raw = avg;
   }
-
+*/
 /* BRIGHTNESS VALUES (NOTES) delete ts later
 lowest raw = 80; lvl =  1
 Highest raw = 10; lvl = 12
@@ -1017,48 +1171,33 @@ data range, 80 -> 10;
 lvl range 1 -> 12
 */
 
-
-
-
-/*
-  if (Serial1.available()) {
-    uint8_t b = Serial1.read();
-    if (b == '\n') {return;} // ignore newline if you kept it
-    else {
-      oldmouth = selected_mouth;
-      oldeyes = selected_eyes;
-      bmouth = (b & 0b00000111);        // bits 0-2
-      beyes  = (b & 0b00111000) >> 3;   // bits 3-5, shifted to 0..3
-      mode =  (b & 0b11000000) >> 6;   // FUTURE "mode" selection
-
-      Serial.println(mode);
-
-      // then call your face selection logic:
-      mouthSelect(bmouth);
-      eyeSelect(beyes);
-      renderFace();
-    }
-  }
-*/
-
-/*
-start by checking if this byte is 0xff.
-if not then we can continue to read the byte
-if the byte doesn't match the data, throw it our.
-*/
-//==========================================mouth logic============================================================================================================================================================================================================================================================---
+//==========================================mouth logic============================================================================================================================================---
   if (isliveA == true) {  // if we know we are live, then just read it.
     if (Serial1.available()) { 
       uint8_t b = Serial1.read();
-      sendMouthCount(b);
+      if (b == 0xF1) {
+        sendMouthCount(b);
+      }
       if (b == 0xFE) { // if it's a heartbeat, record new ping
         lastpingA = now;
       }
       else if (b < FACE_COUNT + 1) {
         digitalWrite(LED_BUILTIN, HIGH);
         selected_mouth = b;
-        mouthToBuffer(selected_mouth);
+        if (mode == 0) {
+          mouthToBuffer(selected_mouth);
+          renderMouth();
+          lastrefm = now;
+        }
         lastpingA = now;
+        
+      }
+      else if (b == 0xFA && mode == 0) {
+        mode = 1;
+      }
+      else if (b == 0xFA && mode == 1) {
+        mode = 0;
+        mouthToBuffer(selected_mouth);
         renderMouth();
       }
       else {
@@ -1069,7 +1208,7 @@ if the byte doesn't match the data, throw it our.
   else if ((now - lastpingA) > DC) { // if it's been awhile since we got a heartbeat...
     Serial1.write(0xFF); // send a request
     lastpingA = now;
-    delay(10); // give it time to get back to us
+    delay(5); // give it time to get back to us
     if (!Serial1.available()) {
       isliveA = false; // if serial1 !available, assume dead (default)
     }
@@ -1081,10 +1220,12 @@ if the byte doesn't match the data, throw it our.
       isliveA = true;
     }
   }
+  if (now - lastrefm > REF) {
+    renderMouth();
+    lastrefm = now;
+  }
 
-
-
-//====================================================================================eye logic==================================================================================================================================================================================================================-
+//====================================================================================eye logic==================================================================================================-
   if (isliveB == true) {  // if we know we are live, then just read it.
     if (Serial2.available()) { 
       uint8_t b = Serial2.read();
@@ -1096,7 +1237,8 @@ if the byte doesn't match the data, throw it our.
         selected_eyes = b;
         eyeToBuffer(selected_eyes);
         lastpingB = now;
-        renderFaceSeries();
+        renderEyes();
+        lastrefe = now;
       }
       else {
         b = 0;
@@ -1106,7 +1248,7 @@ if the byte doesn't match the data, throw it our.
   else if ((now - lastpingB) > DC) { // if it's been awhile since we got a heartbeat...
     Serial2.write(0xFF); // send a request
     lastpingB = now;
-    delay(10); // give it time to get back to us
+    delay(5); // give it time to get back to us
     if (!Serial2.available()) {
       isliveB = false; // if serial1 !available, assume dead (default)
     }
@@ -1118,7 +1260,16 @@ if the byte doesn't match the data, throw it our.
       isliveB = true;
     }
   }
+
+  if (now - lastrefe > REF) {
+    renderEyes();
+    lastrefe = now;
+  }
 //==========================================--BLINKING============================================================================================================================================================================================================================================================--
+  if (checkTrue(selected_eyes) == false) {
+    lastblink = now - 2500;
+  }
+  
   if ((now - lastblink) >= BLINK && checkTrue(selected_eyes) == true) {
     digitalWrite(LED_BUILTIN, HIGH);
     blinkToBuffer(selected_eyes);    
